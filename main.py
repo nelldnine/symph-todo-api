@@ -58,7 +58,7 @@ def tasks(board_id):
         task = Task.save(
             title=body.get('title'),
             description=body.get('description'),
-            status=body.get('title'),
+            status=body.get('status'),
             board=board_id
         )
         return jsonify(task.to_dict())
