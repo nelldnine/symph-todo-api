@@ -19,6 +19,8 @@ def login_required(f):
             try:
                 payload = jwt.decode(auth.split()[-1], SECRET)
                 logging.debug(payload)
+                for key in payload:
+                    logging.debug('{}: {}'.format(str(key), str(payload[key])))
                 return f(*args, **kwargs)
             except Exception as e:
                 logging.exception(e)
@@ -29,32 +31,49 @@ def login_required(f):
 def before_req():
     try:
         body = request.get_json()
-        for key in body:
-            if 'password' in key:
-                continue
-            logging.debug('{}: {}'.format(str(key), str(body[key])))
+        if body:
+            for key in body:
+                if 'password' in key:
+                    continue
+                logging.debug('{}: {}'.format(str(key), str(body[key])))
     except Exception as e:
         logging.debug(e)
 
+@app.route('/api/boards/<int:board_id>', methods=['GET', 'PUT'])
 @app.route('/api/boards', methods=['GET', 'POST'])
 @login_required
-def boards():
+def boards(board_id=None):
     auth = request.headers.get('Authorization')
     user = jwt.decode(auth.split()[-1], SECRET)
     if request.method == 'POST':
         body = request.get_json()
-        board = Board.save(
-            name=body.get('name'),
-            user_id=user['id']
-        )
+        board = Board.save(name=body.get('name'), user_id=user['id'])
+        return jsonify(board.to_dict())
+    elif request.method == 'PUT':
+        body = request.get_json()
+        board = Board.save(id=board_id, name=body.get('name'))
+        return jsonify(board.to_dict())
+    if board_id:
+        board = Board.get_by_id(board_id)
         return jsonify(board.to_dict())
     return jsonify(Board.get_user_boards(user['id']))
 
-@app.route('/api/board/<int:board_id>/tasks', methods=['GET', 'POST'])
+@app.route('/api/boards/<int:board_id>/users/<int:user_id>', methods=['PUT', 'DELETE'])
 @login_required
-def tasks(board_id):
-    body = request.get_json()
+def board_users(board_id, user_id):
+    board = Board.get_by_id(board_id)
+    if request.method == 'PUT':
+        board = board.add_user(user_id)
+    if request.method == 'DELETE':
+        board = board.remove_user(user_id)
+    return jsonify(board.to_dict())
+
+@app.route('/api/boards/<int:board_id>/tasks/<int:task_id>', methods=['GET', 'PUT'])
+@app.route('/api/boards/<int:board_id>/tasks', methods=['GET', 'POST'])
+@login_required
+def tasks(board_id, task_id=None):
     if request.method == 'POST':
+        body = request.get_json()
         task = Task.save(
             title=body.get('title'),
             description=body.get('description'),
@@ -62,7 +81,19 @@ def tasks(board_id):
             board=board_id
         )
         return jsonify(task.to_dict())
-    tasks = Task.get_board_tasks(board_id=board_id)
+    elif request.method == 'PUT':
+        body = request.get_json()
+        task = Task.save(
+            id=task_id,
+            title=body.get('title'),
+            description=body.get('description'),
+            status=body.get('status')
+        )
+        return jsonify(task.to_dict())
+    if task_id:
+        task = Task.get_by_id(task_id)
+        return jsonify(task.to_dict())
+    tasks = Board.get_tasks(board_id)
     return jsonify(tasks)
 
 @app.route('/api/register', methods=['POST'])
@@ -98,8 +129,3 @@ def method_not_allowed(e):
 def not_found(e):
     logging.exception(e)
     return jsonify(message='Resource not found'), 404
-
-@app.errorhandler(400)
-def bad_request(e):
-    logging.exception(e)
-    return jsonify(message='Bad request'), 400
